@@ -38,7 +38,7 @@ import datetime
 import requests
 
 __title__ = 'CoSoCoW'
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 __author__ = 'Thomas Katemann'
 __copyright__ = 'Copyright 2018 Thomas Katemann'
 __license__ = 'MIT'
@@ -372,7 +372,7 @@ class CoSoCoW(object):
                 else:
                     z_out.append(None)
         else:
-            if self.a_zone_avail[idx_zone]:
+            if idx_zone is not None and self.a_zone_avail[idx_zone]:
                 z_req = self.a_zone_soco[idx_zone]
                 if isinstance(z_req, list):
                     z_out = z_req[0]
@@ -403,7 +403,7 @@ class CoSoCoW(object):
             if isinstance(z_req, list):
                 try:
                     for z_req_sub in z_req:
-                        s_sp_info = z_req_sub.get_speaker_info()
+                        s_sp_info = z_req_sub.get_speaker_info(timeout=3)
                         str_zone_name = s_sp_info.get('zone_name')
                         str_player = s_sp_info.get('model_name')
                         self.get_cmd_info(str(z_req_sub) + ' : ' + str_zone_name,2)
@@ -411,21 +411,21 @@ class CoSoCoW(object):
                         #model_name
                     self.a_zone_name.append(str_zone_name)
                     self.a_zone_avail.append(True)
-                except (OSError, ValueError):
+                except:
                     self.a_zone_name.append('')
                     self.a_zone_avail.append(False)
                     print('Zone not Avail: ' + str(z_req))
 
             else:
                 try:
-                    s_sp_info = z_req.get_speaker_info()
+                    s_sp_info = z_req.get_speaker_info(timeout=3)
                     str_zone_name = s_sp_info.get('zone_name')
                     str_player = s_sp_info.get('model_name')
                     self.get_cmd_info(str(z_req) + ' : ' + str_zone_name, 2)
                     self.get_cmd_info(str(z_req) + ' : ' + str_player, 2)
                     self.a_zone_name.append(str_zone_name)
                     self.a_zone_avail.append(True)
-                except (OSError, ValueError):
+                except:
                     self.a_zone_name.append('')
                     self.a_zone_avail.append(False)
                     print('Zone not Avail: ' + str(z_req))
@@ -438,7 +438,7 @@ class CoSoCoW(object):
         """
         num_zones = len(self.a_zone_soco)
         self.a_groups = []
-        self.a_group_co = [0] * num_zones
+        self.a_group_co = [None] * num_zones
 
         for idx_zone1 in range(num_zones):
             a_grp_cur = []
@@ -450,11 +450,11 @@ class CoSoCoW(object):
 
                     z_req2 = self.get_zone(idx_zone2)
                     if z_req2 is not None:
-                        if z_req1 in self.get_zone(idx_zone2).group.members:
+                        if z_req1 in z_req2.group.members:
                             # is grouped
                             a_grp_cur.append(idx_zone2)
 
-                        if self.get_zone(idx_zone1).group.coordinator == z_req2:
+                        if z_req1.group.coordinator == z_req2:
                             # get coordinator
                             self.a_group_co[idx_zone1] = idx_zone2
 
@@ -476,7 +476,12 @@ class CoSoCoW(object):
         :param idx_join_zone:
         """
         z_req_main = self.get_zone(idx_main_zone)
+        if z_req_main is None:
+            return  # Not available
         z_req_join = self.get_zone(idx_join_zone)
+        if z_req_join is None:
+            return  # Not available
+
         if str_action == 'Join':
             # z_req_join joins z_req_main
             self.get_cmd_info(' # Join Grp: ' + str(idx_join_zone) + ' -> ' + str(idx_main_zone), 2)
@@ -506,23 +511,21 @@ class CoSoCoW(object):
         :return:
         """
         z_req = self.get_zone(idx_zone)
-        if z_req is None:
-            return  # Not available
-
-        a_radio_fav = z_req.music_library.get_favorite_radio_stations()
-        # get names of radios
-        a_radio_fav_name = []
-        for itRadio in a_radio_fav:
-            strTitle = itRadio.title
-            a_radio_fav_name.append(strTitle)
-        # if favorite list has changed
-        if self.a_radio_fav != a_radio_fav:
-            self.get_cmd_info(' :3 get_radio_fav: new radios', 2)
-            self.a_radio_fav = a_radio_fav
-            self.a_radio_fav_name = a_radio_fav_name
-            self.ev_radio_fav(idx_zone, a_radio_fav_name)
-        else:
-            self.get_cmd_info(' :3 get_radio_fav: NO new radios', 2)
+        if z_req is not None:
+            a_radio_fav = z_req.music_library.get_favorite_radio_stations()
+            # get names of radios
+            a_radio_fav_name = []
+            for itRadio in a_radio_fav:
+                strTitle = itRadio.title
+                a_radio_fav_name.append(strTitle)
+            # if favorite list has changed
+            if self.a_radio_fav != a_radio_fav:
+                self.get_cmd_info(' :3 get_radio_fav: new radios', 2)
+                self.a_radio_fav = a_radio_fav
+                self.a_radio_fav_name = a_radio_fav_name
+                self.ev_radio_fav(idx_zone, a_radio_fav_name)
+            else:
+                self.get_cmd_info(' :3 get_radio_fav: NO new radios', 2)
 
     def get_mudb_tracks(self, idx_zone, idx_db_type, idx_item):
         """
@@ -532,10 +535,11 @@ class CoSoCoW(object):
         :param idx_item:
         """
         z_req = self.get_zone(idx_zone)
-        self.a_mudb_tracks = z_req.music_library.get_tracks(self.a_mudb_items[idx_db_type][idx_item], 1000)
-        self.a_mudb_tracks_name = []
-        for mudb_track in self.a_mudb_tracks:
-            self.a_mudb_tracks_name.append(mudb_track.title)
+        if z_req is not None:
+            self.a_mudb_tracks = z_req.music_library.get_tracks(self.a_mudb_items[idx_db_type][idx_item], 1000)
+            self.a_mudb_tracks_name = []
+            for mudb_track in self.a_mudb_tracks:
+                self.a_mudb_tracks_name.append(mudb_track.title)
 
     def get_mudb_list(self, idx_zone):
         """
@@ -543,31 +547,32 @@ class CoSoCoW(object):
         :param idx_zone:
         """
         z_req = self.get_zone(idx_zone)
+        if z_req is not None:
 
-        self.a_mudb_items = []
-        self.a_mudb_items_name = []
+            self.a_mudb_items = []
+            self.a_mudb_items_name = []
 
-        for idx_db_type in range(3):
-            art1 = None
-            if idx_db_type == 0:
-                self.get_cmd_info(' :3 get Music DB Artists', 2)
-                art1a = z_req.music_library.get_artists(0, 1000)
-                art1b = z_req.music_library.get_artists(1000, 1000)
-                art1 = art1a + art1b
+            for idx_db_type in range(3):
+                art1 = None
+                if idx_db_type == 0:
+                    self.get_cmd_info(' :3 get Music DB Artists', 2)
+                    art1a = z_req.music_library.get_artists(0, 1000)
+                    art1b = z_req.music_library.get_artists(1000, 1000)
+                    art1 = art1a + art1b
 
-            if idx_db_type == 1:
-                self.get_cmd_info(' :3 get Music DB Album', 2)
-                art1 = z_req.music_library.get_albums(0, 1000)
+                if idx_db_type == 1:
+                    self.get_cmd_info(' :3 get Music DB Album', 2)
+                    art1 = z_req.music_library.get_albums(0, 1000)
 
-            if idx_db_type == 2:
-                self.get_cmd_info(' :3 get Music DB Genre', 2)
-                art1 = z_req.music_library.get_genres(0, 1000)
+                if idx_db_type == 2:
+                    self.get_cmd_info(' :3 get Music DB Genre', 2)
+                    art1 = z_req.music_library.get_genres(0, 1000)
 
-            self.a_mudb_items.append(art1)
-            art_list = list()
-            for idx1 in range(0, len(art1)):
-                art_list.append(art1[idx1].title)
-            self.a_mudb_items_name.append(art_list)
+                self.a_mudb_items.append(art1)
+                art_list = list()
+                for idx1 in range(0, len(art1)):
+                    art_list.append(art1[idx1].title)
+                self.a_mudb_items_name.append(art_list)
 
     def add_mudb_queue_item(self, idx_zone=0, idx_type=0, idx_item=0):
         """
@@ -577,7 +582,8 @@ class CoSoCoW(object):
         :param idx_item:
         """
         z_req = self.get_zone(idx_zone)
-        z_req.add_to_queue(self.a_mudb_items[idx_type][idx_item])
+        if z_req is not None:
+            z_req.add_to_queue(self.a_mudb_items[idx_type][idx_item])
 
     def rem_mudb_queue_item(self, idx_zone=0, idx_type=0, idx_row=0):
         """
@@ -587,20 +593,21 @@ class CoSoCoW(object):
         :param idx_row:
         """
         z_req = self.get_zone(idx_zone)
-        if idx_type < 0:
-            z_req.clear_queue()
-        else:
-            self.a_queue_rem_actv[idx_zone] = True
-            if isinstance(idx_row, list):
-                for idx in idx_row:
-                    z_req.remove_from_queue(int(idx))
-                    self.get_cmd_info(' Remove Item from Queue: ' + str(idx), 2)
+        if z_req is not None:
+            if idx_type < 0:
+                z_req.clear_queue()
             else:
-                if idx_row < 0:
-                    idx_row = 0
-                z_req.remove_from_queue(int(idx_row))
-                self.get_cmd_info(' Remove Item from Queue: ' + str(idx_row), 2)
-            self.a_queue_rem_actv[idx_zone] = False
+                self.a_queue_rem_actv[idx_zone] = True
+                if isinstance(idx_row, list):
+                    for idx in idx_row:
+                        z_req.remove_from_queue(int(idx))
+                        self.get_cmd_info(' Remove Item from Queue: ' + str(idx), 2)
+                else:
+                    if idx_row < 0:
+                        idx_row = 0
+                    z_req.remove_from_queue(int(idx_row))
+                    self.get_cmd_info(' Remove Item from Queue: ' + str(idx_row), 2)
+                self.a_queue_rem_actv[idx_zone] = False
 
     def get_aux_avail_all(self):
         """
@@ -609,40 +616,44 @@ class CoSoCoW(object):
         num_zones = len(self.a_zone_soco)
         self.a_aux_avail_name = []
         self.a_aux_avail_src = []
+
         for idxZ in range(num_zones):
 
-            z_req = self.a_zone_soco[idxZ]
-            if isinstance(z_req, list):
-                for z_req_sub in z_req:
-                    str_name, str_type = self.get_aux_avail(z_req_sub)
+            z_req = self.get_zone(idxZ)
+            if z_req is not None:
+                z_req_all = self.a_zone_soco[idxZ]
+                if isinstance(z_req_all, list):
+                    for z_req_sub in z_req_all:
+                        str_name, str_type = self.get_aux_avail(z_req_sub)
+                        if str_type == 'AudioComponent':
+                            aux_tmp = [str_name, z_req_sub]
+                            self.a_aux_avail_name.append(str_name)
+                            self.a_aux_avail_src.append(z_req_sub)
+                            self.get_cmd_info(' :x Aux: ' + str(aux_tmp), 2)
+                else:
+                    str_type, str_name = self.get_aux_avail(z_req_all)
                     if str_type == 'AudioComponent':
-                        aux_tmp = [str_name, z_req_sub]
+                        aux_tmp = [str_name, z_req_all]
                         self.a_aux_avail_name.append(str_name)
-                        self.a_aux_avail_src.append(z_req_sub)
+                        self.a_aux_avail_src.append(z_req_all)
                         self.get_cmd_info(' :x Aux: ' + str(aux_tmp), 2)
-            else:
-                str_type, str_name = self.get_aux_avail(z_req)
-                if str_type == 'AudioComponent':
-                    aux_tmp = [str_name, z_req]
-                    self.a_aux_avail_name.append(str_name)
-                    self.a_aux_avail_src.append(z_req)
-                    self.get_cmd_info(' :x Aux: ' + str(aux_tmp), 2)
 
-    def get_aux_avail(self, z_cur):
+    def get_aux_avail(self, z_req):
         """
         get available aux source
-        :param z_cur:
+        :param z_req:
         :return:
         """
-        base_url = 'http://{}:1400'.format(z_cur.ip_address)
-        control_url = '/{}/Control'.format('AudioIn')
-        h1, b1 = z_cur.deviceProperties.build_command('GetAudioInputAttributes')
-        h1['SOAPACTION'] = h1.get('SOAPACTION').replace('DeviceProperties', 'AudioIn')
-        b1 = b1.replace('DeviceProperties', 'AudioIn')
-        response = requests.post(base_url + control_url, headers=h1, data=b1.encode('utf-8'))
-        str_aux_name = self.str_split(response.text, '<CurrentName>', '</CurrentName>')
-        str_aux_type = self.str_split(response.text, '<CurrentIcon>', '</CurrentIcon>')
-        return str_aux_name, str_aux_type
+        if z_req is not None:
+            base_url = 'http://{}:1400'.format(z_req.ip_address)
+            control_url = '/{}/Control'.format('AudioIn')
+            h1, b1 = z_req.deviceProperties.build_command('GetAudioInputAttributes')
+            h1['SOAPACTION'] = h1.get('SOAPACTION').replace('DeviceProperties', 'AudioIn')
+            b1 = b1.replace('DeviceProperties', 'AudioIn')
+            response = requests.post(base_url + control_url, headers=h1, data=b1.encode('utf-8'))
+            str_aux_name = self.str_split(response.text, '<CurrentName>', '</CurrentName>')
+            str_aux_type = self.str_split(response.text, '<CurrentIcon>', '</CurrentIcon>')
+            return str_aux_name, str_aux_type
 
     def set_aux_play(self, idx_zone=0, idx_aux=0):
         """
@@ -651,10 +662,11 @@ class CoSoCoW(object):
         :param idx_aux:
         """
         z_req = self.get_zone(idx_zone)
-        z_aux = self.a_aux_avail_src[idx_aux]
+        if z_req is not None:
+            z_aux = self.a_aux_avail_src[idx_aux]
 
-        z_req.switch_to_line_in(z_aux)
-        z_req.play()
+            z_req.switch_to_line_in(z_aux)
+            z_req.play()
 
     def set_radio_play(self, idx_zone=0, str_radio=None, idx_radio=None):
         """
@@ -666,24 +678,24 @@ class CoSoCoW(object):
         """
         idx_coo = self.get_zone_co_idx(idx_zone)
         z_req = self.get_zone(idx_coo)
+        if z_req is not None:
+            if idx_radio is not None:
+                str_radio = self.a_radio_fav_name[idx_radio]
+                str_radio = ''.join(e for e in str_radio if e.isalnum() or e == ' ')
 
-        if idx_radio is not None:
-            str_radio = self.a_radio_fav_name[idx_radio]
-            str_radio = ''.join(e for e in str_radio if e.isalnum() or e == ' ')
+            elif str_radio is not None:
+                if str_radio in self.a_radio_fav_name:
+                    idx_radio = self.a_radio_fav_name.index(str_radio)
+                else:
+                    self.get_cmd_info(' :x Can not find radio: ' + str_radio, 2)
+                    return
 
-        elif str_radio is not None:
-            if str_radio in self.a_radio_fav_name:
-                idx_radio = self.a_radio_fav_name.index(str_radio)
-            else:
-                self.get_cmd_info(' :x Can not find radio: ' + str_radio, 2)
-                return
-
-        str_uri_play = self.a_radio_fav[idx_radio].get_uri()
-        try:
-            z_req.play_uri(str_uri_play, "", str_radio)
-            self.get_cmd_info(' :x set_radio: ' + str_radio, 2)
-        except:
-            self.get_cmd_info(' :x Can not play radio: ' + str_radio, 2)
+            str_uri_play = self.a_radio_fav[idx_radio].get_uri()
+            try:
+                z_req.play_uri(str_uri_play, "", str_radio)
+                self.get_cmd_info(' :x set_radio: ' + str_radio, 2)
+            except:
+                self.get_cmd_info(' :x Can not play radio: ' + str_radio, 2)
 
     def set_queue_track_play(self, idx_zone=0, idx_row=1):
         """
@@ -693,15 +705,16 @@ class CoSoCoW(object):
         """
         self.get_cmd_info('PlayQueue:' + str(idx_zone) + ' T:' + str(idx_row), 2)
         z_req = self.get_zone(idx_zone)
-        trans_info = z_req.get_current_transport_info()
-        str_trans_state = trans_info['current_transport_state']
-        if str_trans_state != 'TRANSITIONING':
-            try:
-                z_req.play_from_queue(idx_row)
-            except:
-                self.get_cmd_info('set_queue_track_play: Can not play!', 2)
-        else:
-            self.get_cmd_info('set_queue_track_play: Just in TRANSITIONING', 2)
+        if z_req is not None:
+            trans_info = z_req.get_current_transport_info()
+            str_trans_state = trans_info['current_transport_state']
+            if str_trans_state != 'TRANSITIONING':
+                try:
+                    z_req.play_from_queue(idx_row)
+                except:
+                    self.get_cmd_info('set_queue_track_play: Can not play!', 2)
+            else:
+                self.get_cmd_info('set_queue_track_play: Just in TRANSITIONING', 2)
 
     def set_play_start_stop(self, idx_zone=0, idx_play=-1):
         """
@@ -712,28 +725,28 @@ class CoSoCoW(object):
         """
         idx_co = self.get_zone_co_idx(idx_zone)
         z_req = self.get_zone(idx_co)
-
-        if idx_play == -1:
-            trans_info = z_req.get_current_transport_info()
-            str_trans_state = trans_info['current_transport_state']
-            if str_trans_state != 'TRANSITIONING':
-                if str_trans_state == 'PLAYING':
-                    z_req.pause()
+        if z_req is not None:
+            if idx_play == -1:
+                trans_info = z_req.get_current_transport_info()
+                str_trans_state = trans_info['current_transport_state']
+                if str_trans_state != 'TRANSITIONING':
+                    if str_trans_state == 'PLAYING':
+                        z_req.pause()
+                    else:
+                        try:
+                            z_req.play()
+                        except:
+                            self.get_cmd_info('set_play_start_stop: Can not play!', 2)
                 else:
-                    try:
-                        z_req.play()
-                    except:
-                        self.get_cmd_info('set_play_start_stop: Can not play!', 2)
-            else:
-                self.get_cmd_info('set_play_start_stop: Just in TRANSITIONING', 2)
+                    self.get_cmd_info('set_play_start_stop: Just in TRANSITIONING', 2)
 
-        elif idx_play == 0:
-            z_req.pause()
-        elif idx_play == 1:
-            try:
-                z_req.play()
-            except:
-                self.get_cmd_info('set_play_start_stop: Can not play!', 2)
+            elif idx_play == 0:
+                z_req.pause()
+            elif idx_play == 1:
+                try:
+                    z_req.play()
+                except:
+                    self.get_cmd_info('set_play_start_stop: Can not play!', 2)
 
     def set_play_track_next(self, idx_zone=0, str_dir='Next'):
         """
@@ -980,6 +993,8 @@ class CoSoCoW(object):
             return
 
         z_req = self.get_zone(idx_coo)
+        if z_req is None:
+            return
 
         if event_var is None:
             return
@@ -1215,7 +1230,8 @@ class CoSoCoW(object):
                 self.b_groups_diff = True  # if groups have changed
                 self.get_cmd_info(' # CurGroups: ' + str(self.a_groups) + ' Co: ' + str(self.a_group_co), 2)
                 for idx in self.a_group_co:
-                    self.get_play_status(idx, self.a_event2_last[idx])
+                    if idx is not None:
+                        self.get_play_status(idx, self.a_event2_last[idx])
                 self.a_groups_chk = self.a_groups
                 self.b_groups_diff = False
                 self.b_evsub4_addturn = False
@@ -1380,17 +1396,17 @@ class CoSoCoW(object):
         """
         idx_coo = self.get_zone_co_idx(idx_zone)
         z_req = self.get_zone(idx_coo)
-
-        if self.a_play_is_radio[idx_coo] or self.a_play_is_auxin[idx_coo]:
-            return
-        if idx_mode == 0:
-            z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'NORMAL')])
-        elif idx_mode == 1:
-            z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'SHUFFLE')])
-        elif idx_mode == 2:
-            z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'SHUFFLE_NOREPEAT')])
-        elif idx_mode == 3:
-            z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'REPEAT_ALL')])
+        if z_req is not None:
+            if self.a_play_is_radio[idx_coo] or self.a_play_is_auxin[idx_coo]:
+                return
+            if idx_mode == 0:
+                z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'NORMAL')])
+            elif idx_mode == 1:
+                z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'SHUFFLE')])
+            elif idx_mode == 2:
+                z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'SHUFFLE_NOREPEAT')])
+            elif idx_mode == 3:
+                z_req.avTransport.SetPlayMode([('InstanceID', 0), ('NewPlayMode', 'REPEAT_ALL')])
 
     def get_sleep_timer(self, idx_zone=-1):
         """
@@ -1405,23 +1421,7 @@ class CoSoCoW(object):
             for idxZ in range(num_zones):
                 idx_coo = self.get_zone_co_idx(idxZ)
                 z_req = self.get_zone(idx_coo)
-                d_cur_sleep_time = z_req.get_sleep_timer()
-                if d_cur_sleep_time is None:
-                    self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
-                    self.ev_sleep_time_val(idx_coo, d_cur_sleep_time)
-                else:
-                    self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
-                    str_time = self.timestamp4sec(d_cur_sleep_time)
-                    self.ev_sleep_time_val(idx_coo, str_time)
-
-        # check
-        if idx_zone == -1:
-
-            for idxZ in range(num_zones):
-                idx_coo = self.get_zone_co_idx(idxZ)
-                if self.a_sleep_time_val[idx_coo] is not None:
-
-                    z_req = self.get_zone(idx_coo)
+                if z_req is not None:
                     d_cur_sleep_time = z_req.get_sleep_timer()
                     if d_cur_sleep_time is None:
                         self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
@@ -1430,17 +1430,36 @@ class CoSoCoW(object):
                         self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
                         str_time = self.timestamp4sec(d_cur_sleep_time)
                         self.ev_sleep_time_val(idx_coo, str_time)
+
+        # check
+        if idx_zone == -1:
+
+            for idxZ in range(num_zones):
+                idx_coo = self.get_zone_co_idx(idxZ)
+                z_req = self.get_zone(idx_coo)
+                if z_req is not None:
+
+                    if self.a_sleep_time_val[idx_coo] is not None:
+                        d_cur_sleep_time = z_req.get_sleep_timer()
+                        if d_cur_sleep_time is None:
+                            self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
+                            self.ev_sleep_time_val(idx_coo, d_cur_sleep_time)
+                        else:
+                            self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
+                            str_time = self.timestamp4sec(d_cur_sleep_time)
+                            self.ev_sleep_time_val(idx_coo, str_time)
         else:
 
             idx_coo = self.get_zone_co_idx(idx_zone)
             z_req = self.get_zone(idx_coo)
-            d_cur_sleep_time = z_req.get_sleep_timer()
-            if d_cur_sleep_time is None:
-                self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
-                self.ev_sleep_time_val(idx_coo, d_cur_sleep_time)
-            else:
-                self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
-            return d_cur_sleep_time
+            if z_req is not None:
+                d_cur_sleep_time = z_req.get_sleep_timer()
+                if d_cur_sleep_time is None:
+                    self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
+                    self.ev_sleep_time_val(idx_coo, d_cur_sleep_time)
+                else:
+                    self.a_sleep_time_val[idx_coo] = d_cur_sleep_time
+                return d_cur_sleep_time
 
     def set_sleep_timer(self, idx_zone=0, d_time=60):
         """
@@ -1450,12 +1469,13 @@ class CoSoCoW(object):
         """
         idx_coo = self.get_zone_co_idx(idx_zone)
         z_req = self.get_zone(idx_coo)
-        d_cur_sleep_time = z_req.get_sleep_timer()
+        if z_req is not None:
+            d_cur_sleep_time = z_req.get_sleep_timer()
 
-        if d_cur_sleep_time is None:
-            z_req.set_sleep_timer(d_time * 60)
-        else:
-            z_req.set_sleep_timer(None)
+            if d_cur_sleep_time is None:
+                z_req.set_sleep_timer(d_time * 60)
+            else:
+                z_req.set_sleep_timer(None)
 
     def timestamp4sec(self, d_time_sec):
         """
