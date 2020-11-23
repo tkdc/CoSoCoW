@@ -65,7 +65,7 @@ class CoSoCoW(object):
         self.b_zone_ev_sub3_prnt = False
         self.b_zone_ev_sub4_prnt = False
         self.b_zone_ev_sub5_prnt = False
-        self.b_print_str_type = True
+        self.b_print_str_type = False
 
         # init internal variables
         self.a_zone_soco = []
